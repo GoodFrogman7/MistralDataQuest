@@ -34,14 +34,20 @@ db = st.session_state.db
 
 # API key management in session state
 if "mistral_api_key" not in st.session_state:
+    # Initialize with default API key from environment
     st.session_state.mistral_api_key = os.getenv("MISTRAL_API_KEY", "")
     st.session_state.mistral_service = None
+    st.session_state.is_using_default_key = True
     
 # Create Mistral service if API key is available
 def get_mistral_service():
     if not st.session_state.mistral_service and st.session_state.mistral_api_key:
         st.session_state.mistral_service = MistralService(api_key=st.session_state.mistral_api_key)
     return st.session_state.mistral_service
+
+# Initialize Mistral service at startup if default API key is available
+if st.session_state.mistral_api_key and not st.session_state.mistral_service:
+    get_mistral_service()
 
 # App title and description
 st.title("SQLquest - AI-Powered Data Storytelling")
@@ -191,27 +197,58 @@ with st.sidebar:
     
     # Display current API key status
     if st.session_state.mistral_api_key:
-        st.success("Mistral API key is configured")
+        is_default_key = st.session_state.mistral_api_key == os.getenv("MISTRAL_API_KEY", "")
+        if is_default_key:
+            st.success("Using default Mistral API key.")
+        else:
+            st.success("Using custom Mistral API key.")
     else:
         st.warning("Mistral API key is not set")
     
-    # Input field for API key
-    new_api_key = st.text_input(
-        "Enter Mistral API Key", 
-        value=st.session_state.mistral_api_key if st.session_state.mistral_api_key else "",
-        type="password",
-        help="Enter your Mistral API key to enable natural language processing"
-    )
+    # Track if we're using a custom key
+    if "using_custom_key" not in st.session_state:
+        st.session_state.using_custom_key = False
+        
+    # Checkbox to use custom API key
+    use_custom_key = st.checkbox("Use my own Mistral API key", value=st.session_state.using_custom_key, 
+                           help="Uncheck to use the default Mistral API key provided by the application")
     
-    # Update API key if changed
-    if new_api_key != st.session_state.mistral_api_key:
-        st.session_state.mistral_api_key = new_api_key
-        st.session_state.mistral_service = None
-        if new_api_key:
-            st.success("API key updated!")
+    # Handle state change in checkbox
+    if use_custom_key != st.session_state.using_custom_key:
+        st.session_state.using_custom_key = use_custom_key
+        
+        # If switching back to default key
+        if not use_custom_key:
+            default_api_key = os.getenv("MISTRAL_API_KEY", "")
+            st.session_state.mistral_api_key = default_api_key
+            st.session_state.mistral_service = None
+            st.success("Switched to default Mistral API key")
+            get_mistral_service()  # Initialize with default key
+            st.rerun()
+    
+    # Input field for API key (only shown if checkbox is checked)
+    if use_custom_key:
+        # Show text input for custom key
+        custom_key_input = st.text_input(
+            "Enter your Mistral API Key", 
+            value="",
+            type="password",
+            help="Enter your Mistral API key to enable natural language processing"
+        )
+        
+        # Update API key if provided
+        if custom_key_input and custom_key_input != st.session_state.mistral_api_key:
+            st.session_state.mistral_api_key = custom_key_input
+            st.session_state.mistral_service = None
+            st.success("Custom API key applied!")
             get_mistral_service()  # Initialize the service with the new key
-        else:
-            st.warning("API key removed")
+    else:
+        # Make sure we're using the default key from environment
+        default_api_key = os.getenv("MISTRAL_API_KEY", "")
+        if default_api_key and not st.session_state.mistral_api_key:
+            st.session_state.mistral_api_key = default_api_key
+            st.session_state.mistral_service = None
+            get_mistral_service()  # Initialize the service with the default key
     
     st.divider()
     
@@ -238,7 +275,7 @@ if submit_button and query_input:
     # Check if Mistral API key is available
     mistral_service = get_mistral_service()
     if not mistral_service:
-        st.error("Mistral API key is required. Please add your API key in the sidebar.")
+        st.error("No valid Mistral API key found. The application is using the default API key, but it appears to be invalid or missing. Please check with the administrator.")
     else:
         with st.spinner("Processing your question..."):
             try:
