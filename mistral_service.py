@@ -74,27 +74,60 @@ class MistralService:
                 schema_text += "\n"
             schema_text += "\n"
         
-        # Construct the prompt
+        # Determine if we're using PostgreSQL or SQLite based on schema info
+        is_postgresql = any("serial" in str(col.get('type', '')).lower() for table in schema_info.values() for col in table)
+        
+        # Construct the prompt with clearer instructions
         prompt = f"""You are an expert SQL query generator. Your task is to convert a natural language question into a valid SQL query.
 
 {schema_text}
 
 Question: {natural_language_query}
 
-Generate a valid SQL query for SQLite that answers this question. Only return the SQL query itself without any explanations, comments, or markdown formatting.
-The query should be optimized, follow best practices, and be compatible with SQLite syntax.
+IMPORTANT: Respond with ONLY the SQL query. No explanation, no code blocks, no backticks, no markdown formatting.
+Your response should begin with SELECT or WITH and be a valid, executable SQL query.
+
+Generate a valid SQL query that answers this question. The query should:
+1. Be compatible with {"PostgreSQL" if is_postgresql else "SQLite"} syntax
+2. Use proper table and column names exactly as shown in the schema, with quotes around names if needed
+3. Include appropriate JOINs when needed
+4. Use proper SQL functions ({"PostgreSQL" if is_postgresql else "SQLite"} compatible)
+5. Be optimized for performance
+
+Remember: ONLY return the raw SQL query with no formatting or explanation.
 """
         
         messages = [
-            {"role": "system", "content": "You are an assistant that converts natural language to SQL queries."},
+            {"role": "system", "content": "You are an assistant that converts natural language to SQL queries. You only return the SQL query without ANY explanation or formatting."},
             {"role": "user", "content": prompt}
         ]
         
         try:
             response = self._call_mistral_api(messages)
-            sql_query = response["choices"][0]["message"]["content"].strip()
+            raw_content = response["choices"][0]["message"]["content"].strip()
             
-            # Basic validation to ensure we got a SQL query
+            # Clean up the response to extract just the SQL query
+            # Remove code block markers if present
+            sql_query = raw_content.replace("```sql", "").replace("```", "").strip()
+            
+            # If there's explanatory text at the start or end, try to extract just the SQL part
+            if not sql_query.lower().startswith(("select", "with")):
+                # Find where the SQL query likely starts
+                select_pos = sql_query.lower().find("select")
+                with_pos = sql_query.lower().find("with")
+                
+                start_pos = -1
+                if select_pos >= 0 and (with_pos == -1 or select_pos < with_pos):
+                    start_pos = select_pos
+                elif with_pos >= 0:
+                    start_pos = with_pos
+                
+                if start_pos >= 0:
+                    sql_query = sql_query[start_pos:].strip()
+                else:
+                    return "", "The generated output does not appear to be a valid SQL query"
+            
+            # Basic validation to ensure we got a proper SQL query
             if not sql_query.lower().startswith(("select", "with")):
                 return "", "The generated output does not appear to be a valid SQL query"
             
