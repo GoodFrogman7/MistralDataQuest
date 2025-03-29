@@ -243,7 +243,12 @@ if submit_button and query_input:
         with st.spinner("Processing your question..."):
             try:
                 # Generate SQL query from natural language
-                sql_query, error = mistral_service.generate_sql(query_input, db.get_schema_info())
+                # Pass the database type to the Mistral service for better SQL generation
+                sql_query, error = mistral_service.generate_sql(
+                    query_input, 
+                    db.get_schema_info(),
+                    db_type=db.db_type
+                )
                 
                 if error:
                     st.error(f"Error generating SQL query: {error}")

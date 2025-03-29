@@ -50,13 +50,14 @@ class MistralService:
             print(f"Error calling Mistral API: {str(e)}")
             raise
     
-    def generate_sql(self, natural_language_query: str, schema_info: Dict) -> Tuple[str, Optional[str]]:
+    def generate_sql(self, natural_language_query: str, schema_info: Dict, db_type: str = "") -> Tuple[str, Optional[str]]:
         """
         Generate SQL query from natural language using Mistral.
         
         Args:
             natural_language_query (str): User's natural language question
             schema_info (Dict): Database schema information
+            db_type (str, optional): Database type ('postgresql', 'sqlite', etc.)
             
         Returns:
             Tuple[str, Optional[str]]: Generated SQL query and error message if any
@@ -74,8 +75,53 @@ class MistralService:
                 schema_text += "\n"
             schema_text += "\n"
         
-        # Determine if we're using PostgreSQL or SQLite based on schema info
-        is_postgresql = any("serial" in str(col.get('type', '')).lower() for table in schema_info.values() for col in table)
+        # First check if db_type is explicitly provided
+        is_postgresql = False
+        
+        if db_type:
+            is_postgresql = 'postgres' in db_type.lower()
+        else:
+            # Determine if we're using PostgreSQL or SQLite based on schema info
+            # Look for PostgreSQL-specific types: serial, timestamp, uuid, etc.
+            postgresql_types = ['serial', 'bigserial', 'timestamp', 'uuid', 'interval', 'json', 'jsonb']
+            is_postgresql = any(
+                any(pg_type in str(col.get('type', '')).lower() for pg_type in postgresql_types)
+                for table in schema_info.values() 
+                for col in table
+            )
+            
+            # Additional check: look for the database connection string if available
+            # This can be added as metadata to the schema_info
+            if not is_postgresql and any('postgres' in str(val).lower() for val in schema_info.values() if isinstance(val, str)):
+                is_postgresql = True
+                
+        # Force postgresql if the DATABASE_URL environment variable contains postgres
+        if 'postgres' in os.environ.get('DATABASE_URL', '').lower():
+            is_postgresql = True
+        
+        # Specific instructions based on database type
+        db_specific_instructions = ""
+        if is_postgresql:
+            db_specific_instructions = """
+CRITICAL PostgreSQL-specific guidelines:
+- NEVER use SQLite functions like DATE() or strftime() - these do not exist in PostgreSQL
+- Use PostgreSQL date functions: CURRENT_DATE for today's date
+- For start of year: date_trunc('year', CURRENT_DATE)
+- For end of year: date_trunc('year', CURRENT_DATE) + INTERVAL '1 year' - INTERVAL '1 day'
+- For date intervals, use: CURRENT_DATE + INTERVAL '1 month'
+- For date formatting, use: TO_CHAR(date_column, 'YYYY-MM')
+- For timestamp extraction, use: EXTRACT(YEAR FROM date_column) or date_trunc('month', date_column)
+- For month/day extraction: EXTRACT(MONTH FROM date_column), EXTRACT(DAY FROM date_column)
+- Quotes for identifiers should use double quotes (") not backticks
+"""
+        else:
+            db_specific_instructions = """
+SQLite-specific guidelines:
+- Use SQLite date functions: DATE('now') for current date
+- Use strftime('%Y-%m', date_column) for date formatting
+- For date math, use DATE('now', '+1 month') syntax
+- Use SQLite's julianday() function for date arithmetic
+"""
         
         # Construct the prompt with clearer instructions
         prompt = f"""You are an expert SQL query generator. Your task is to convert a natural language question into a valid SQL query.
@@ -84,17 +130,20 @@ class MistralService:
 
 Question: {natural_language_query}
 
-IMPORTANT: Respond with ONLY the SQL query. No explanation, no code blocks, no backticks, no markdown formatting.
+IMPORTANT: You're generating SQL for a {"PostgreSQL" if is_postgresql else "SQLite"} database.
+Respond with ONLY the raw SQL query. No explanation, no code blocks, no markdown, no backticks.
 Your response should begin with SELECT or WITH and be a valid, executable SQL query.
 
+{db_specific_instructions}
+
 Generate a valid SQL query that answers this question. The query should:
-1. Be compatible with {"PostgreSQL" if is_postgresql else "SQLite"} syntax
-2. Use proper table and column names exactly as shown in the schema, with quotes around names if needed
+1. Be 100% compatible with {"PostgreSQL" if is_postgresql else "SQLite"} syntax
+2. Use proper table and column names exactly as shown in the schema
 3. Include appropriate JOINs when needed
-4. Use proper SQL functions ({"PostgreSQL" if is_postgresql else "SQLite"} compatible)
+4. Use proper SQL functions that work in {"PostgreSQL" if is_postgresql else "SQLite"}
 5. Be optimized for performance
 
-Remember: ONLY return the raw SQL query with no formatting or explanation.
+Remember: ONLY return the raw SQL query.
 """
         
         messages = [
