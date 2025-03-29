@@ -5,23 +5,46 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 
 class Database:
-    def __init__(self, db_path=None):
+    def __init__(self, db_path=None, connection_string=None):
         """
         Initialize database connection using SQLAlchemy.
         Supports SQLite by default, with possible extension to other databases.
         
         Args:
             db_path (str): Path to the SQLite database file
+            connection_string (str): SQLAlchemy connection string for external databases
         """
         self.engine = None
         self.inspector = None
+        self.db_type = "sqlite"  # Default database type
         
+        # If external connection string is provided, use it
+        if connection_string:
+            try:
+                self.engine = create_engine(connection_string)
+                self.inspector = inspect(self.engine)
+                if "postgresql" in connection_string:
+                    self.db_type = "postgresql"
+                elif "mysql" in connection_string:
+                    self.db_type = "mysql"
+                print(f"Successfully connected to external database")
+            except SQLAlchemyError as e:
+                print(f"Error connecting to external database: {str(e)}")
+                # Fallback to environment PostgreSQL or SQLite
+                self._connect_to_default_db(db_path)
+        else:
+            # Connect to default database (PostgreSQL from env or SQLite)
+            self._connect_to_default_db(db_path)
+    
+    def _connect_to_default_db(self, db_path=None):
+        """Connect to default database - PostgreSQL from env vars or SQLite"""
         # Check for PostgreSQL connection from environment variables
         database_url = os.getenv("DATABASE_URL")
         if database_url:
             try:
                 self.engine = create_engine(database_url)
                 self.inspector = inspect(self.engine)
+                self.db_type = "postgresql"
                 # Check if the database has tables, if not, create sample tables
                 if not self.inspector.get_table_names():
                     print("PostgreSQL database is empty. Creating sample tables...")

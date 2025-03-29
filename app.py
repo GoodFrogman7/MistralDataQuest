@@ -15,12 +15,22 @@ st.set_page_config(
 
 # Initialize database connection and Mistral service
 @st.cache_resource
-def initialize_database():
-    db = Database()
+def initialize_database(db_path=None, connection_string=None):
+    db = Database(db_path=db_path, connection_string=connection_string)
     return db
 
+# Initialize session state for database
+if "db_connection_type" not in st.session_state:
+    st.session_state.db_connection_type = "default"
+    st.session_state.uploaded_db_path = None
+    st.session_state.connection_string = None
+    st.session_state.db = None
+
 # Get the database instance
-db = initialize_database()
+if st.session_state.db is None:
+    st.session_state.db = initialize_database()
+
+db = st.session_state.db
 
 # API key management in session state
 if "mistral_api_key" not in st.session_state:
@@ -39,18 +49,140 @@ st.markdown("""
 Ask questions about your data in plain English and get instant insights with visualizations.
 """)
 
-# Sidebar with database info and API key configuration
+# Sidebar with database connection, info and API key configuration
 with st.sidebar:
+    st.header("Database Connection")
+    
+    # Database connection options
+    connection_type = st.radio(
+        "Database Connection Type",
+        ["Use Default Database", "Upload SQLite Database", "Connect to External Database"],
+        key="connection_type_radio"
+    )
+    
+    # Handle database connection change
+    if connection_type == "Use Default Database" and st.session_state.db_connection_type != "default":
+        st.session_state.db_connection_type = "default"
+        st.session_state.uploaded_db_path = None
+        st.session_state.connection_string = None
+        st.session_state.db = initialize_database()
+        st.rerun()
+    
+    # SQLite database upload
+    elif connection_type == "Upload SQLite Database":
+        uploaded_file = st.file_uploader("Upload SQLite Database File", type=["db", "sqlite", "sqlite3"])
+        
+        if uploaded_file is not None:
+            # Save the uploaded file
+            save_dir = "uploaded_db"
+            os.makedirs(save_dir, exist_ok=True)
+            db_path = os.path.join(save_dir, uploaded_file.name)
+            
+            # Only process if file is new or different
+            process_file = False
+            if st.session_state.uploaded_db_path != db_path:
+                process_file = True
+                
+            if process_file:
+                with open(db_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+                st.success(f"Uploaded SQLite database: {uploaded_file.name}")
+                
+                # Initialize new database connection
+                st.session_state.db_connection_type = "sqlite"
+                st.session_state.uploaded_db_path = db_path
+                st.session_state.db = initialize_database(db_path=db_path)
+                st.rerun()
+    
+    # External database connection
+    elif connection_type == "Connect to External Database":
+        st.markdown("""Enter your database connection string:""")
+        db_type = st.selectbox("Database Type", ["PostgreSQL", "MySQL", "SQLite"])
+        
+        if db_type == "PostgreSQL":
+            host = st.text_input("Host", "localhost")
+            port = st.text_input("Port", "5432")
+            database = st.text_input("Database Name")
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            
+            if st.button("Connect"):
+                if database and username and password:
+                    connection_string = f"postgresql://{username}:{password}@{host}:{port}/{database}"
+                    try:
+                        st.session_state.db_connection_type = "external"
+                        st.session_state.connection_string = connection_string
+                        st.session_state.db = initialize_database(connection_string=connection_string)
+                        st.success("Connected to PostgreSQL database successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error connecting to database: {str(e)}")
+                else:
+                    st.warning("Please fill in all required fields")
+        
+        elif db_type == "MySQL":
+            host = st.text_input("Host", "localhost")
+            port = st.text_input("Port", "3306")
+            database = st.text_input("Database Name")
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            
+            if st.button("Connect"):
+                if database and username:
+                    connection_string = f"mysql+pymysql://{username}:{password}@{host}:{port}/{database}"
+                    try:
+                        st.session_state.db_connection_type = "external"
+                        st.session_state.connection_string = connection_string
+                        st.session_state.db = initialize_database(connection_string=connection_string)
+                        st.success("Connected to MySQL database successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error connecting to database: {str(e)}")
+                else:
+                    st.warning("Please fill in all required fields")
+        
+        elif db_type == "SQLite":
+            path = st.text_input("Database File Path (absolute path)")
+            
+            if st.button("Connect"):
+                if path:
+                    try:
+                        st.session_state.db_connection_type = "external_sqlite"
+                        st.session_state.uploaded_db_path = path
+                        st.session_state.db = initialize_database(db_path=path)
+                        st.success("Connected to SQLite database successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error connecting to database: {str(e)}")
+                else:
+                    st.warning("Please provide the database file path")
+    
+    # Database information section
     st.header("Database Information")
+    
+    # Display the current connection type
+    if st.session_state.db_connection_type == "default":
+        st.info("Using default database")
+    elif st.session_state.db_connection_type == "sqlite":
+        db_name = os.path.basename(st.session_state.uploaded_db_path) if st.session_state.uploaded_db_path else "Unknown"
+        st.info(f"Using uploaded SQLite database: {db_name}")
+    elif st.session_state.db_connection_type == "external":
+        st.info("Using external database connection")
+    elif st.session_state.db_connection_type == "external_sqlite":
+        db_name = os.path.basename(st.session_state.uploaded_db_path) if st.session_state.uploaded_db_path else "Unknown"
+        st.info(f"Using external SQLite database: {db_name}")
     
     # Display database schema information
     st.subheader("Available Tables")
     schema_info = db.get_schema_info()
     
-    for table_name, columns in schema_info.items():
-        with st.expander(f"{table_name}"):
-            for col in columns:
-                st.text(f"• {col['name']} ({col['type']})")
+    if schema_info:
+        for table_name, columns in schema_info.items():
+            with st.expander(f"{table_name}"):
+                for col in columns:
+                    st.text(f"• {col['name']} ({col['type']})")
+    else:
+        st.warning("No tables found in the connected database.")
     
     st.divider()
     
