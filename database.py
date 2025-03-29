@@ -16,25 +16,55 @@ class Database:
         self.engine = None
         self.inspector = None
         
-        # If no db_path is provided, create/use a default SQLite database
+        # Check for PostgreSQL connection from environment variables
+        database_url = os.getenv("DATABASE_URL")
+        if database_url:
+            try:
+                self.engine = create_engine(database_url)
+                self.inspector = inspect(self.engine)
+                # Check if the database has tables, if not, create sample tables
+                if not self.inspector.get_table_names():
+                    print("PostgreSQL database is empty. Creating sample tables...")
+                    self._create_sample_tables()
+                print(f"Successfully connected to PostgreSQL database")
+            except SQLAlchemyError as e:
+                print(f"Error connecting to PostgreSQL database: {str(e)}")
+                # Fallback to SQLite
+                self._setup_sqlite(db_path)
+        else:
+            # Use SQLite if no PostgreSQL connection is available
+            self._setup_sqlite(db_path)
+    
+    def _setup_sqlite(self, db_path=None):
+        """Set up SQLite database connection"""
         if not db_path:
-            # Create sample database if it doesn't exist
-            self._create_sample_db()
+            os.makedirs("data", exist_ok=True)
             db_path = "data/sample.db"
+            
+            # Remove existing database file if it's corrupted
+            if os.path.exists(db_path):
+                try:
+                    # Test if the file is a valid database
+                    test_conn = sqlite3.connect(db_path)
+                    test_conn.execute("SELECT 1")
+                    test_conn.close()
+                except sqlite3.DatabaseError:
+                    print("Removing corrupted database file")
+                    os.remove(db_path)
+            
+            # Create a new database file
+            self._create_sample_tables_sqlite(db_path)
         
-        # Connect to the database
         try:
             self.engine = create_engine(f"sqlite:///{db_path}")
             self.inspector = inspect(self.engine)
-            print(f"Successfully connected to database")
+            print(f"Successfully connected to SQLite database")
         except SQLAlchemyError as e:
-            print(f"Error connecting to database: {str(e)}")
+            print(f"Error connecting to SQLite database: {str(e)}")
     
-    def _create_sample_db(self):
-        """Create a sample database with tables if it doesn't exist"""
-        os.makedirs("data", exist_ok=True)
-        
-        conn = sqlite3.connect("data/sample.db")
+    def _create_sample_tables_sqlite(self, db_path):
+        """Create sample tables in SQLite database"""
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
         # Create employees table
@@ -74,8 +104,137 @@ class Database:
         )
         ''')
         
+        # Insert sample data for employees
+        cursor.execute("INSERT INTO employees (name, department, salary, hire_date) VALUES (?, ?, ?, ?)",
+                      ("John Smith", "Engineering", 85000.00, "2021-05-15"))
+        cursor.execute("INSERT INTO employees (name, department, salary, hire_date) VALUES (?, ?, ?, ?)",
+                      ("Sarah Johnson", "Marketing", 72000.00, "2022-01-10"))
+        cursor.execute("INSERT INTO employees (name, department, salary, hire_date) VALUES (?, ?, ?, ?)",
+                      ("Michael Chen", "Engineering", 95000.00, "2020-08-22"))
+        cursor.execute("INSERT INTO employees (name, department, salary, hire_date) VALUES (?, ?, ?, ?)",
+                      ("Emily Davis", "Sales", 68000.00, "2022-04-05"))
+        cursor.execute("INSERT INTO employees (name, department, salary, hire_date) VALUES (?, ?, ?, ?)",
+                      ("Robert Wilson", "Finance", 78000.00, "2021-10-18"))
+        
+        # Insert sample data for products
+        cursor.execute("INSERT INTO products (name, category, price, stock) VALUES (?, ?, ?, ?)",
+                      ("Laptop Pro", "Electronics", 1299.99, 45))
+        cursor.execute("INSERT INTO products (name, category, price, stock) VALUES (?, ?, ?, ?)",
+                      ("Deluxe Headphones", "Electronics", 249.99, 78))
+        cursor.execute("INSERT INTO products (name, category, price, stock) VALUES (?, ?, ?, ?)",
+                      ("Smart Watch", "Electronics", 399.99, 32))
+        cursor.execute("INSERT INTO products (name, category, price, stock) VALUES (?, ?, ?, ?)",
+                      ("Office Chair", "Furniture", 199.99, 15))
+        cursor.execute("INSERT INTO products (name, category, price, stock) VALUES (?, ?, ?, ?)",
+                      ("Ergonomic Desk", "Furniture", 349.99, 12))
+        cursor.execute("INSERT INTO products (name, category, price, stock) VALUES (?, ?, ?, ?)",
+                      ("Wireless Mouse", "Electronics", 59.99, 90))
+        cursor.execute("INSERT INTO products (name, category, price, stock) VALUES (?, ?, ?, ?)",
+                      ("External SSD", "Electronics", 149.99, 28))
+        
+        # Insert sample data for sales
+        cursor.execute("INSERT INTO sales (product_id, employee_id, sale_date, quantity, total_amount, region) VALUES (?, ?, ?, ?, ?, ?)",
+                      (1, 4, "2023-10-05", 2, 2599.98, "West"))
+        cursor.execute("INSERT INTO sales (product_id, employee_id, sale_date, quantity, total_amount, region) VALUES (?, ?, ?, ?, ?, ?)",
+                      (3, 4, "2023-10-07", 3, 1199.97, "East"))
+        cursor.execute("INSERT INTO sales (product_id, employee_id, sale_date, quantity, total_amount, region) VALUES (?, ?, ?, ?, ?, ?)",
+                      (2, 4, "2023-11-12", 5, 1249.95, "West"))
+        cursor.execute("INSERT INTO sales (product_id, employee_id, sale_date, quantity, total_amount, region) VALUES (?, ?, ?, ?, ?, ?)",
+                      (5, 4, "2023-11-15", 1, 349.99, "North"))
+        cursor.execute("INSERT INTO sales (product_id, employee_id, sale_date, quantity, total_amount, region) VALUES (?, ?, ?, ?, ?, ?)",
+                      (7, 2, "2023-12-01", 4, 599.96, "South"))
+        cursor.execute("INSERT INTO sales (product_id, employee_id, sale_date, quantity, total_amount, region) VALUES (?, ?, ?, ?, ?, ?)",
+                      (6, 2, "2023-12-05", 10, 599.90, "East"))
+        cursor.execute("INSERT INTO sales (product_id, employee_id, sale_date, quantity, total_amount, region) VALUES (?, ?, ?, ?, ?, ?)",
+                      (4, 4, "2024-01-10", 2, 399.98, "West"))
+        cursor.execute("INSERT INTO sales (product_id, employee_id, sale_date, quantity, total_amount, region) VALUES (?, ?, ?, ?, ?, ?)",
+                      (1, 4, "2024-01-15", 1, 1299.99, "South"))
+        cursor.execute("INSERT INTO sales (product_id, employee_id, sale_date, quantity, total_amount, region) VALUES (?, ?, ?, ?, ?, ?)",
+                      (3, 2, "2024-02-02", 2, 799.98, "North"))
+        cursor.execute("INSERT INTO sales (product_id, employee_id, sale_date, quantity, total_amount, region) VALUES (?, ?, ?, ?, ?, ?)",
+                      (2, 4, "2024-02-15", 1, 249.99, "East"))
+        
         conn.commit()
         conn.close()
+        print("Sample SQLite database created successfully")
+    
+    def _create_sample_tables(self):
+        """Create sample tables in PostgreSQL database"""
+        with self.engine.connect() as connection:
+            # Create employees table
+            connection.execute(text('''
+            CREATE TABLE IF NOT EXISTS employees (
+                employee_id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                department TEXT NOT NULL,
+                salary DECIMAL(10, 2) NOT NULL,
+                hire_date DATE NOT NULL
+            )
+            '''))
+            
+            # Create products table
+            connection.execute(text('''
+            CREATE TABLE IF NOT EXISTS products (
+                product_id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                category TEXT NOT NULL,
+                price DECIMAL(10, 2) NOT NULL,
+                stock INTEGER NOT NULL
+            )
+            '''))
+            
+            # Create sales table
+            connection.execute(text('''
+            CREATE TABLE IF NOT EXISTS sales (
+                sale_id SERIAL PRIMARY KEY,
+                product_id INTEGER REFERENCES products(product_id),
+                employee_id INTEGER REFERENCES employees(employee_id),
+                sale_date DATE NOT NULL,
+                quantity INTEGER NOT NULL,
+                total_amount DECIMAL(10, 2) NOT NULL,
+                region TEXT NOT NULL
+            )
+            '''))
+            
+            # Insert sample data for employees
+            connection.execute(text('''
+            INSERT INTO employees (name, department, salary, hire_date) VALUES 
+            ('John Smith', 'Engineering', 85000.00, '2021-05-15'),
+            ('Sarah Johnson', 'Marketing', 72000.00, '2022-01-10'),
+            ('Michael Chen', 'Engineering', 95000.00, '2020-08-22'),
+            ('Emily Davis', 'Sales', 68000.00, '2022-04-05'),
+            ('Robert Wilson', 'Finance', 78000.00, '2021-10-18')
+            '''))
+            
+            # Insert sample data for products
+            connection.execute(text('''
+            INSERT INTO products (name, category, price, stock) VALUES 
+            ('Laptop Pro', 'Electronics', 1299.99, 45),
+            ('Deluxe Headphones', 'Electronics', 249.99, 78),
+            ('Smart Watch', 'Electronics', 399.99, 32),
+            ('Office Chair', 'Furniture', 199.99, 15),
+            ('Ergonomic Desk', 'Furniture', 349.99, 12),
+            ('Wireless Mouse', 'Electronics', 59.99, 90),
+            ('External SSD', 'Electronics', 149.99, 28)
+            '''))
+            
+            # Insert sample data for sales
+            connection.execute(text('''
+            INSERT INTO sales (product_id, employee_id, sale_date, quantity, total_amount, region) VALUES 
+            (1, 4, '2023-10-05', 2, 2599.98, 'West'),
+            (3, 4, '2023-10-07', 3, 1199.97, 'East'),
+            (2, 4, '2023-11-12', 5, 1249.95, 'West'),
+            (5, 4, '2023-11-15', 1, 349.99, 'North'),
+            (7, 2, '2023-12-01', 4, 599.96, 'South'),
+            (6, 2, '2023-12-05', 10, 599.90, 'East'),
+            (4, 4, '2024-01-10', 2, 399.98, 'West'),
+            (1, 4, '2024-01-15', 1, 1299.99, 'South'),
+            (3, 2, '2024-02-02', 2, 799.98, 'North'),
+            (2, 4, '2024-02-15', 1, 249.99, 'East')
+            '''))
+            
+            connection.commit()
+            print("Sample PostgreSQL database created successfully")
     
     def get_schema_info(self):
         """
