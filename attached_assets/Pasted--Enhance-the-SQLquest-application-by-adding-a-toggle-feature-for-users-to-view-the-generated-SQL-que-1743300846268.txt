@@ -1,0 +1,71 @@
+"Enhance the SQLquest application by adding a toggle feature for users to view the generated SQL queries. The SQL queries should be displayed in a collapsible expander that remains closed by default to keep the user interface clean. Follow these steps to implement this feature:
+
+Locate the SQL Query Display Logic:
+
+Find the part of the app.py file where the generated SQL query is currently displayed after it is generated from the natural language input.
+Wrap the SQL Query in an Expander:
+
+Use st.expander() to create a collapsible section for the SQL query output.
+Update the Code:
+Replace the SQL query display section with the following code:
+
+# Process the query when the submit button is clicked
+if submit_button and query_input:
+    # Check if Mistral API key is available
+    mistral_service = get_mistral_service()
+    if not mistral_service:
+        st.error("No valid Mistral API key found.")
+    else:
+        with st.spinner("Processing your question..."):
+            try:
+                # Generate SQL query from natural language
+                sql_query, error = mistral_service.generate_sql(
+                    query_input, 
+                    db.get_schema_info(),
+                    db_type=db.db_type
+                )
+                
+                if error:
+                    st.error(f"Error generating SQL query: {error}")
+                else:
+                    # Create an expander for the SQL query
+                    with st.expander("View Generated SQL Query", expanded=False):
+                        st.code(sql_query, language="sql")  # Show the SQL query
+                        
+                    # Execute the query
+                    try:
+                        results_df = db.execute_query(sql_query)
+                        
+                        if results_df is not None and not results_df.empty:
+                            # Analyze results and generate narrative insights
+                            analysis = analyze_query_results(results_df)
+                            narrative = mistral_service.generate_narrative(
+                                query_input, 
+                                sql_query, 
+                                results_df, 
+                                analysis, 
+                                tone.lower()
+                            )
+                            
+                            # Display results in two columns
+                            col1, col2 = st.columns([3, 2])
+                            
+                            with col1:
+                                st.subheader("Insights")
+                                st.markdown(narrative)
+                                st.subheader("Data")
+                                st.dataframe(results_df)
+                            
+                            with col2:
+                                st.subheader("Visualization")
+                                viz_fig = create_visualization(results_df, query_input)
+                                st.plotly_chart(viz_fig, use_container_width=True)
+                        else:
+                            st.info("The query returned no results.")
+                    except Exception as e:
+                        st.error(f"Error executing query: {str(e)}")
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")
+Testing:
+After making these changes, run the application to ensure that the SQL queries can be viewed by users when they choose to expand the section, without cluttering the UI initially.
+Expected Outcome: The users should now have the ability to toggle the visibility of the generated SQL queries, providing a cleaner interface while still making it accessible to those who wish to see it.

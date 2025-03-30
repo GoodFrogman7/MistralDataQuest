@@ -290,8 +290,8 @@ if submit_button and query_input:
                 if error:
                     st.error(f"Error generating SQL query: {error}")
                 else:
-                    # Display the generated SQL
-                    with st.expander("Generated SQL Query", expanded=True):
+                    # Display the generated SQL in a collapsible expander
+                    with st.expander("View Generated SQL Query", expanded=False):
                         st.code(sql_query, language="sql")
                     
                     # Execute the query
