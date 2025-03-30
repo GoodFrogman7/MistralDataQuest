@@ -309,15 +309,58 @@ class Database:
         Returns:
             pandas.DataFrame: Query results as a DataFrame
         """
-        try:
-            # Execute the query
-            with self.engine.connect() as connection:
-                result = connection.execute(text(query))
-                # Convert result to DataFrame
-                df = pd.DataFrame(result.fetchall())
-                if not df.empty:
-                    df.columns = result.keys()
-                return df
-        except SQLAlchemyError as e:
-            print(f"Error executing query: {str(e)}")
-            raise e
+        # Fix common SQL syntax issues in generated queries
+        # Add spaces where they might be missing
+        query = query.replace("FROMFROM", "FROM ")
+        query = query.replace("GROUPGROUP", "GROUP ")
+        query = query.replace("BYBY", "BY ")
+        
+        # Fix missing spaces after FROM 
+        if "FROM" in query and not " FROM " in query:
+            query = query.replace("FROM", " FROM ")
+            
+        # Fix missing spaces around GROUP BY
+        if "GROUP BY" in query and not " GROUP BY " in query:
+            query = query.replace("GROUP BY", " GROUP BY ")
+        
+        # Maximum retry attempts for connection issues
+        max_retries = 3
+        retry_count = 0
+        last_error = None
+        
+        # Retry loop for handling connection issues
+        while retry_count < max_retries:
+            try:
+                # Create a fresh connection for each query execution
+                with self.engine.connect() as connection:
+                    # Set a timeout for the query execution (PostgreSQL specific)
+                    if self.db_type == "postgresql":
+                        connection.execute(text("SET statement_timeout = 30000"))  # 30 seconds timeout
+                    
+                    # Execute the query
+                    result = connection.execute(text(query))
+                    
+                    # Convert result to DataFrame
+                    df = pd.DataFrame(result.fetchall())
+                    if not df.empty:
+                        df.columns = result.keys()
+                    return df
+                    
+            except Exception as e:
+                last_error = e
+                retry_count += 1
+                error_msg = str(e)
+                
+                # Check if it's a connection-related error that warrants a retry
+                if "SSL connection" in error_msg or "connection" in error_msg.lower() or "timeout" in error_msg.lower():
+                    print(f"Connection error, retrying ({retry_count}/{max_retries}): {error_msg}")
+                    # Short pause before retry
+                    import time
+                    time.sleep(1)
+                else:
+                    # For other errors, don't retry
+                    break
+        
+        # If we exited the loop without returning, raise the last error
+        print(f"Error executing query after {retry_count} attempts: {str(last_error)}")
+        raise last_error
