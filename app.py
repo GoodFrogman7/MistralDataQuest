@@ -1,41 +1,49 @@
 import os
 import streamlit as st
 import pandas as pd
+
+print("🔍 Starting Streamlit app...")
+
 try:
     from database import Database
     from mistral_service import MistralService
     from data_analysis import analyze_query_results
     from visualization import create_visualization
+    print("✅ All modules imported successfully.")
 except Exception as e:
-    import streamlit as st
     st.error(f"❌ Error during import: {e}")
+    print(f"❌ ImportError: {e}")
     raise e
 
+# Set page config
+try:
+    st.set_page_config(
+        page_title="SQLquest - AI-Powered Data Storytelling",
+        layout="wide"
+    )
+    print("✅ Streamlit page config set.")
+except Exception as e:
+    st.error(f"❌ Error setting page config: {e}")
+    print(f"❌ ConfigError: {e}")
+    raise e
 
-# Set page configuration
-st.set_page_config(
-    page_title="SQLquest - AI-Powered Data Storytelling",
-    layout="wide"
-)
+# Init database
+try:
+    @st.cache_resource
+    def initialize_database(db_path=None, connection_string=None):
+        print("📡 Initializing DB...")
+        return Database(db_path=db_path, connection_string=connection_string)
 
-# Initialize database connection and Mistral service
-@st.cache_resource
-def initialize_database(db_path=None, connection_string=None):
-    db = Database(db_path=db_path, connection_string=connection_string)
-    return db
+    if "db" not in st.session_state:
+        st.session_state.db = initialize_database()
+        print("✅ Database initialized.")
 
-# Initialize session state for database
-if "db_connection_type" not in st.session_state:
-    st.session_state.db_connection_type = "default"
-    st.session_state.uploaded_db_path = None
-    st.session_state.connection_string = None
-    st.session_state.db = None
+    db = st.session_state.db
+except Exception as e:
+    st.error(f"❌ Error initializing DB: {e}")
+    print(f"❌ DB Init Error: {e}")
+    raise e
 
-# Get the database instance
-if st.session_state.db is None:
-    st.session_state.db = initialize_database()
-
-db = st.session_state.db
 
 # API key management in session state
 if "mistral_api_key" not in st.session_state:
