@@ -1,11 +1,16 @@
 import os
 import streamlit as st
 import pandas as pd
+try:
+    from database import Database
+    from mistral_service import MistralService
+    from data_analysis import analyze_query_results
+    from visualization import create_visualization
+except Exception as e:
+    import streamlit as st
+    st.error(f"❌ Error during import: {e}")
+    raise e
 
-from database import Database
-from mistral_service import MistralService
-from data_analysis import analyze_query_results
-from visualization import create_visualization
 
 # Set page configuration
 st.set_page_config(
